@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@plugin "tailwindcss-animate";
+
+@layer base {
+  :root {
+    --background: 330 30% 99%;
+    --foreground: 330 10% 20%;
+
+    --card: 330 30% 98%;
+    --card-foreground: 330 10% 20%;
+
+    --popover: 330 30% 98%;
+    --popover-foreground: 330 10% 20%;
+
+    --primary: 335 60% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 335 30% 92%;
+    --secondary-foreground: 335 30% 40%;
+
+    --muted: 330 20% 94%;
+    --muted-foreground: 330 10% 45%;
+
+    --accent: 335 30% 92%;
+    --accent-foreground: 335 30% 40%;
+
+    --destructive: 0 70% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --success: 142 76% 36%;
+
+    --border: 330 20% 88%;
+    --input: 330 20% 88%;
+    --ring: 335 60% 65%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 330 20% 10%;
+    --foreground: 330 10% 98%;
+
+    --card: 330 20% 12%;
+    --card-foreground: 330 10% 98%;
+
+    --popover: 330 20% 12%;
+    --popover-foreground: 330 10% 98%;
+
+    --primary: 335 60% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 335 20% 20%;
+    --secondary-foreground: 330 10% 98%;
+
+    --muted: 330 20% 20%;
+    --muted-foreground: 330 10% 60%;
+
+    --accent: 335 20% 20%;
+    --accent-foreground: 330 10% 98%;
+
+    --destructive: 0 70% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --success: 142 76% 36%;
+
+    --border: 330 20% 25%;
+    --input: 330 20% 25%;
+    --ring: 335 60% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.pink-gradient {
+  background: linear-gradient(135deg, rgb(252, 245, 248) 0%, rgb(250, 240, 245) 100%);
+}
+
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px -5px rgba(236, 158, 188, 0.15);
+}
+
+.pink-shadow {
+  box-shadow: 0 4px 12px -2px rgba(236, 158, 188, 0.12);
+}
+
+.pink-glow {
+  box-shadow: 0 0 10px rgba(236, 158, 188, 0.3);
+}
+
+.pink-pattern {
+  background-color: #fdf8fa;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M54.627 0l.83.828-1.415 1.415L51.8 0h2.827zM5.373 0l-.83.828L5.96 2.243 8.2 0H5.374zM48.97 0l3.657 3.657-1.414 1.414L46.143 0h2.828zM11.03 0L7.372 3.657l1.415 1.414L13.857 0H11.03zm32.284 0l6.9 6.9-1.414 1.414-9.9-9.9 4.413 4.414L40.97 0h2.343zm-16.97 0l-4.414 4.414 9.9-9.9-6.9 6.9L25.03 0h2.342zM30 0l-4.242 4.242L30 8.485l4.242-4.243L30 0zm15.456 0l-4.242 4.242L49.92 12.97l7.07-7.07-7.07-7.07L45.456 0zm-2.12 0L39.88 3.454 34.828 8.506l-4.242-4.242L25.374 9.9l7.07 7.07 7.072-7.07 7.07 7.07 7.07-7.07-7.07-7.07L43.334 0zM34.828 1.414l5.657 5.657-1.415 1.414L33.414 2.83l1.414-1.416zM25.172 1.414L19.514 7.07l1.415 1.415 5.657-5.657-1.414-1.414zM16.97 1.414l-5.657 5.657 1.415 1.415L18.385 2.83l-1.414-1.416zM43.03 1.414l5.657 5.657-1.414 1.415-5.657-5.657 1.415-1.415z' fill='%23f8c8d8' fill-opacity='0.08' fill-rule='evenodd'/%3E%3C/svg%3E");
+}
+
