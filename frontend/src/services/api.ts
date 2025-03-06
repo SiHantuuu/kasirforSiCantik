@@ -1,5 +1,5 @@
 // services/api.ts
-const BASE_URL = 'https://backend-kasirfor-si-cantik.vercel.app/';
+const BASE_URL = 'https://backend-kasirfor-si-cantik.vercel.app';
 
 // Payment Method API calls
 export const fetchPaymentMethods = async () => {
