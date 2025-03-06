@@ -1,8 +1,6 @@
 'use client';
 
-import type React from 'react';
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Edit, Plus, Trash, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,36 +29,66 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { Product } from '@/components/cashier-dashboard';
+import {
+  fetchProducts,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+} from '@/services/api';
+import { toast } from 'sonner';
 
-interface ProductManagementProps {
-  products: Product[];
-  setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
-  onAddProduct: (product: Product) => void;
+export interface Product {
+  id: string;
+  nama_produk: string;
+  harga: number;
+  kategori: string;
 }
 
-export function ProductManagement({
-  products,
-  setProducts,
-  onAddProduct,
-}: ProductManagementProps) {
+export function ProductManagement() {
+  const [products, setProducts] = useState<Product[]>([]);
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const [productName, setProductName] = useState('');
   const [productPrice, setProductPrice] = useState('');
-  const [productCategory, setProductCategory] = useState<'makanan' | 'minuman'>(
-    'makanan'
-  );
+  const [productCategory, setProductCategory] = useState<string>('makanan');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch products on component mount
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+const loadProducts = async () => {
+  try {
+    setIsLoading(true);
+    const data = await fetchProducts();
+
+    // Mapping data sebelum menyimpan ke state
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transformedProductsData = data.map((product: any) => ({
+      id: product._id,
+      ...product, // Menyimpan properti lainnya
+    }));
+
+    setProducts(transformedProductsData);
+  } catch (error) {
+    toast.error('Gagal memuat data produk');
+    console.error('Failed to fetch products:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const handleOpenDialog = (product?: Product) => {
     if (product) {
       setEditMode(true);
       setCurrentProduct(product);
-      setProductName(product.name);
-      setProductPrice(product.price.toString());
-      setProductCategory(product.category);
+      setProductName(product.nama_produk);
+      setProductPrice(product.harga.toString());
+      setProductCategory(product.kategori);
     } else {
       setEditMode(false);
       setCurrentProduct(null);
@@ -71,47 +99,64 @@ export function ProductManagement({
     setOpen(true);
   };
 
-  const handleSaveProduct = () => {
+  const handleSaveProduct = async () => {
     if (!productName || !productPrice) {
-      alert('Mohon lengkapi semua data produk');
+      toast.error('Mohon lengkapi semua data produk');
       return;
     }
 
-    if (editMode && currentProduct) {
-      const updatedProducts = products.map((p) =>
-        p.id === currentProduct.id
-          ? {
-              ...p,
-              name: productName,
-              price: Number.parseFloat(productPrice),
-              category: productCategory,
-            }
-          : p
-      );
-      setProducts(updatedProducts);
-    } else {
-      const newProduct: Product = {
-        id: Date.now().toString(),
-        name: productName,
-        price: Number.parseFloat(productPrice),
-        category: productCategory,
-      };
-      onAddProduct(newProduct);
-    }
+    try {
+      setIsLoading(true);
 
-    setOpen(false);
-    setProductName('');
-    setProductPrice('');
+      if (editMode && currentProduct) {
+        await updateProduct(currentProduct.id, {
+          nama_produk: productName,
+          harga: Number.parseFloat(productPrice),
+          kategori: productCategory,
+        });
+        toast.success('Produk berhasil diperbarui');
+      } else {
+        await createProduct({
+          nama_produk: productName,
+          harga: Number.parseFloat(productPrice),
+          kategori: productCategory,
+        });
+        toast.success('Produk baru berhasil ditambahkan');
+      }
+
+      // Reload products after create/update
+      await loadProducts();
+      setOpen(false);
+      setProductName('');
+      setProductPrice('');
+    } catch (error) {
+      toast.error(
+        editMode ? 'Gagal memperbarui produk' : 'Gagal menambahkan produk'
+      );
+      console.error('Failed to save product:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDeleteProduct = (id: string) => {
+  const handleDeleteProduct = async (id: string) => {
     if (confirm('Apakah Anda yakin ingin menghapus produk ini?')) {
-      setProducts(products.filter((p) => p.id !== id));
+      try {
+        setIsLoading(true);
+        await deleteProduct(id);
+        await loadProducts();
+        toast.success('Produk berhasil dihapus');
+      } catch (error) {
+        toast.error('Gagal menghapus produk');
+        console.error('Failed to delete product:', error);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
   const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
+    product.nama_produk.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -131,6 +176,7 @@ export function ProductManagement({
             <Button
               onClick={() => handleOpenDialog()}
               className="bg-pink-500 hover:bg-pink-600 text-white"
+              disabled={isLoading}
             >
               <Plus className="mr-2 h-4 w-4" /> Tambah Produk
             </Button>
@@ -157,6 +203,7 @@ export function ProductManagement({
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
                   className="border-pink-200 focus:border-pink-400 focus:ring-pink-400"
+                  disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -172,6 +219,7 @@ export function ProductManagement({
                   value={productPrice}
                   onChange={(e) => setProductPrice(e.target.value)}
                   className="border-pink-200 focus:border-pink-400 focus:ring-pink-400"
+                  disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -180,9 +228,8 @@ export function ProductManagement({
                 </Label>
                 <Select
                   value={productCategory}
-                  onValueChange={(value: 'makanan' | 'minuman') =>
-                    setProductCategory(value)
-                  }
+                  onValueChange={(value) => setProductCategory(value)}
+                  disabled={isLoading}
                 >
                   <SelectTrigger
                     id="product-category"
@@ -202,14 +249,20 @@ export function ProductManagement({
                 variant="outline"
                 onClick={() => setOpen(false)}
                 className="border-pink-200 text-pink-700 hover:bg-pink-100"
+                disabled={isLoading}
               >
                 Batal
               </Button>
               <Button
                 onClick={handleSaveProduct}
                 className="bg-pink-500 hover:bg-pink-600 text-white"
+                disabled={isLoading}
               >
-                {editMode ? 'Simpan Perubahan' : 'Tambah Produk'}
+                {isLoading
+                  ? 'Menyimpan...'
+                  : editMode
+                  ? 'Simpan Perubahan'
+                  : 'Tambah Produk'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -233,74 +286,89 @@ export function ProductManagement({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[400px]">
-            <div className="rounded-md border border-pink-200">
-              <table className="w-full">
-                <thead className="sticky top-0 z-10">
-                  <tr className="border-b bg-pink-50">
-                    <th className="p-2 text-left font-medium text-pink-700">
-                      Nama Produk
-                    </th>
-                    <th className="p-2 text-left font-medium text-pink-700">
-                      Kategori
-                    </th>
-                    <th className="p-2 text-left font-medium text-pink-700">
-                      Harga
-                    </th>
-                    <th className="p-2 text-left font-medium text-pink-700">
-                      Aksi
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map((product) => (
-                      <tr
-                        key={product.id}
-                        className="border-b border-pink-100 hover:bg-pink-50/50"
-                      >
-                        <td className="p-2 text-pink-700">{product.name}</td>
-                        <td className="p-2 text-pink-700">
-                          {product.category === 'makanan'
-                            ? 'Makanan'
-                            : 'Minuman'}
-                        </td>
-                        <td className="p-2 text-pink-700">
-                          Rp {product.price.toLocaleString('id-ID')}
-                        </td>
-                        <td className="p-2">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenDialog(product)}
-                              className="text-pink-700 hover:bg-pink-100 hover:text-pink-900"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteProduct(product.id)}
-                              className="text-pink-700 hover:bg-pink-100 hover:text-pink-900"
-                            >
-                              <Trash className="h-4 w-4" />
-                            </Button>
-                          </div>
+          {isLoading && !open ? (
+            <div className="flex justify-center items-center h-64">
+              <p className="text-pink-500">Memuat data produk...</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-[400px]">
+              <div className="rounded-md border border-pink-200">
+                <table className="w-full">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b bg-pink-50">
+                      <th className="p-2 text-left font-medium text-pink-700">
+                        Nama Produk
+                      </th>
+                      <th className="p-2 text-left font-medium text-pink-700">
+                        Kategori
+                      </th>
+                      <th className="p-2 text-left font-medium text-pink-700">
+                        Harga
+                      </th>
+                      <th className="p-2 text-left font-medium text-pink-700">
+                        Aksi
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.length > 0 ? (
+                      filteredProducts.map((product) => (
+                        <tr
+                          key={product.id}
+                          className="border-b border-pink-100 hover:bg-pink-50/50"
+                        >
+                          <td className="p-2 text-pink-700">
+                            {product.nama_produk}
+                          </td>
+                          <td className="p-2 text-pink-700">
+                            {product.kategori === 'makanan'
+                              ? 'Makanan'
+                              : 'Minuman'}
+                          </td>
+                          <td className="p-2 text-pink-700">
+                            Rp {product.harga.toLocaleString('id-ID')}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex gap-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenDialog(product)}
+                                className="text-pink-700 hover:bg-pink-100 hover:text-pink-900"
+                                disabled={isLoading}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="text-pink-700 hover:bg-pink-100 hover:text-pink-900"
+                                disabled={isLoading}
+                              >
+                                <Trash className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="p-2 text-center text-pink-500"
+                        >
+                          {searchTerm
+                            ? 'Tidak ada produk yang sesuai dengan pencarian'
+                            : 'Belum ada produk tersedia'}
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="p-2 text-center text-pink-500">
-                        Belum ada produk tersedia
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </ScrollArea>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
     </div>

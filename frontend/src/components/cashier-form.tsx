@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Minus,
   Plus,
@@ -28,11 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type {
-  Transaction,
-  Product,
-  PaymentMethod,
-} from '@/components/cashier-dashboard';
+import type { Product } from '@/components/product-management';
+import type { PaymentMethod } from '@/components/payment-method-management';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -45,22 +42,25 @@ import {
   DialogFooter,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  fetchPaymentMethods,
+  createPaymentMethod,
+  fetchProducts,
+  createProduct,
+  createTransaction,
+} from '@/services/api';
+import { toast } from 'sonner';
 
 interface CashierFormProps {
-  products: Product[];
-  paymentMethods: PaymentMethod[];
-  onAddTransaction: (transaction: Transaction) => void;
-  onAddProduct: (product: Product) => void;
-  onAddPaymentMethod: (paymentMethod: PaymentMethod) => void;
+  onTransactionAdded: () => void;
 }
 
-export function CashierForm({
-  products,
-  paymentMethods,
-  onAddTransaction,
-  onAddProduct,
-  onAddPaymentMethod,
-}: CashierFormProps) {
+export function CashierForm({ onTransactionAdded }: CashierFormProps) {
+  // State for products and payment methods
+  const [products, setProducts] = useState<Product[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+
+  // State for form
   const [customerName, setCustomerName] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [deliveryType, setDeliveryType] = useState<'pickup' | 'po'>('pickup');
@@ -85,6 +85,44 @@ export function CashierForm({
     'makanan' | 'minuman'
   >('makanan');
   const [newPaymentMethodName, setNewPaymentMethodName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch products and payment methods on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      try {
+        const [productsData, paymentMethodsData] = await Promise.all([
+          fetchProducts(),
+          fetchPaymentMethods(),
+        ]);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const transformedProductsData = productsData.map((product: any) => ({
+          id: product._id,
+          ...product, // Menyimpan properti lainnya
+        }));
+
+        const transformedPaymentMethods = paymentMethodsData.map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (method: any) => ({
+            id: method._id, // Ambil nilai dari _id
+            nama_pembayaran: method.nama_pembayaran,
+          })
+        );
+        // Simpan data mentah langsung ke state
+        setProducts(transformedProductsData);
+        setPaymentMethods(transformedPaymentMethods);
+      } catch (error) {
+        console.error('Failed to load initial data:', error);
+        toast.error('Gagal memuat data. Silakan coba lagi.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadInitialData();
+  }, []);
 
   const handleAddToCart = (product: Product) => {
     const existingItemIndex = cartItems.findIndex(
@@ -100,8 +138,8 @@ export function CashierForm({
         ...cartItems,
         {
           productId: product.id,
-          name: product.name,
-          price: product.price,
+          name: product.nama_produk,
+          price: product.harga,
           quantity: 1,
         },
       ]);
@@ -126,55 +164,79 @@ export function CashierForm({
     return cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPaymentMethod || cartItems.length === 0) {
-      alert('Mohon lengkapi semua data transaksi');
+      toast.error('Mohon lengkapi semua data transaksi');
       return;
     }
 
     if (deliveryType === 'po' && !customerName) {
-      alert('Mohon masukkan nama pembeli');
+      toast.error('Mohon masukkan nama pembeli');
       return;
     }
 
-    const transaction: Transaction = {
-      id: Date.now().toString(),
-      customerName: deliveryType === 'po' ? customerName : 'Umum',
-      paymentMethod: selectedPaymentMethod,
-      items: [...cartItems],
-      total: calculateTotal(),
-      date: new Date().toISOString(),
-      deliveryType,
-      isPaid: deliveryType === 'po' ? isPaid : true,
-    };
+    try {
+      setIsLoading(true);
 
-    onAddTransaction(transaction);
+      // Format transaction data for API
+      const transactionData: {
+        tanggal: string;
+        tipe: 'preorder' | 'langsung';
+        pembeli?: string;
+        status: 'lunas' | 'pending';
+        total: number;
+        jenis_pembayaran_id: string;
+        produk: { produk: string; jumlah: number }[];
+      } = {
+        tanggal: new Date().toISOString(),
+        tipe: deliveryType === 'po' ? 'preorder' : 'langsung',
+        pembeli: deliveryType === 'po' ? customerName : 'Umum',
+        status: isPaid ? 'lunas' : 'pending',
+        total: calculateTotal(),
+        jenis_pembayaran_id: selectedPaymentMethod,
+        produk: cartItems.map((item) => ({
+          produk: item.productId,
+          jumlah: item.quantity,
+        })),
+      };
 
-    // Reset form
-    setCustomerName('');
-    setSelectedPaymentMethod('');
-    setDeliveryType('pickup');
-    setIsPaid(true);
-    setCartItems([]);
-    setSearchTerm('');
+      // Send transaction to API
+      await createTransaction(transactionData);
 
-    alert('Transaksi berhasil disimpan!');
+      // Reset form
+      setCustomerName('');
+      setSelectedPaymentMethod('');
+      setDeliveryType('pickup');
+      setIsPaid(true);
+      setCartItems([]);
+      setSearchTerm('');
+
+      // Notify parent component that a transaction was added
+      onTransactionAdded();
+
+      toast.success('Transaksi berhasil disimpan!');
+    } catch (error) {
+      console.error('Failed to save transaction:', error);
+      toast.error('Gagal menyimpan transaksi. Silakan coba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name
+    const matchesSearch = product.nama_produk
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
     const matchesCategory =
-      activeCategory === 'all' || product.category === activeCategory;
+      activeCategory === 'all' || product.kategori === activeCategory;
     return matchesSearch && matchesCategory;
   });
 
   const makananProducts = filteredProducts.filter(
-    (product) => product.category === 'makanan'
+    (product) => product.kategori === 'makanan'
   );
   const minumanProducts = filteredProducts.filter(
-    (product) => product.category === 'minuman'
+    (product) => product.kategori === 'minuman'
   );
 
   const renderProductGrid = (products: Product[]) => {
@@ -207,10 +269,10 @@ export function CashierForm({
                 <CardContent className="p-3">
                   <div className="text-center">
                     <p className="font-medium text-lg truncate text-pink-700">
-                      {product.name}
+                      {product.nama_produk}
                     </p>
                     <p className="text-base font-bold text-pink-600">
-                      Rp {product.price.toLocaleString('id-ID')}
+                      Rp {product.harga.toLocaleString('id-ID')}
                     </p>
                     {inCart && (
                       <div className="mt-1 bg-pink-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mx-auto">
@@ -228,40 +290,86 @@ export function CashierForm({
     );
   };
 
-  const handleAddProduct = () => {
+  const handleAddProduct = async () => {
     if (!newProductName || !newProductPrice) {
-      alert('Mohon lengkapi semua data produk');
+      toast.error('Mohon lengkapi semua data produk');
       return;
     }
 
-    const newProduct: Product = {
-      id: Date.now().toString(),
-      name: newProductName,
-      price: Number.parseFloat(newProductPrice),
-      category: newProductCategory,
-    };
+    try {
+      setIsLoading(true);
 
-    onAddProduct(newProduct);
-    setProductDialogOpen(false);
-    setNewProductName('');
-    setNewProductPrice('');
-    setNewProductCategory('makanan');
+      // Format product data for API
+      const productData = {
+        nama_produk: newProductName,
+        harga: Number.parseFloat(newProductPrice),
+        kategori: newProductCategory,
+      };
+
+      // Send product to API
+      const newProduct = await createProduct(productData);
+
+      // Add new product to local state
+      setProducts([
+        ...products,
+        {
+          id: newProduct.id,
+          nama_produk: newProduct.nama_produk,
+          harga: newProduct.harga,
+          kategori: newProduct.kategori,
+        },
+      ]);
+
+      setProductDialogOpen(false);
+      setNewProductName('');
+      setNewProductPrice('');
+      setNewProductCategory('makanan');
+
+      toast.success('Produk berhasil ditambahkan!');
+    } catch (error) {
+      console.error('Failed to create product:', error);
+      toast.error('Gagal menambahkan produk. Silakan coba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAddPaymentMethod = () => {
+  const handleAddPaymentMethod = async () => {
     if (!newPaymentMethodName) {
-      alert('Mohon masukkan nama metode pembayaran');
+      toast.error('Mohon masukkan nama metode pembayaran');
       return;
     }
 
-    const newMethod: PaymentMethod = {
-      id: Date.now().toString(),
-      name: newPaymentMethodName,
-    };
+    try {
+      setIsLoading(true);
 
-    onAddPaymentMethod(newMethod);
-    setPaymentMethodDialogOpen(false);
-    setNewPaymentMethodName('');
+      // Format payment method data for API
+      const paymentMethodData = {
+        nama_pembayaran: newPaymentMethodName,
+      };
+
+      // Send payment method to API
+      const newMethod = await createPaymentMethod(paymentMethodData);
+
+      // Add new payment method to local state
+      setPaymentMethods([
+        ...paymentMethods,
+        {
+          id: newMethod.id,
+          nama_pembayaran: newMethod.nama_pembayaran,
+        },
+      ]);
+
+      setPaymentMethodDialogOpen(false);
+      setNewPaymentMethodName('');
+
+      toast.success('Metode pembayaran berhasil ditambahkan!');
+    } catch (error) {
+      console.error('Failed to create payment method:', error);
+      toast.error('Gagal menambahkan metode pembayaran. Silakan coba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -351,7 +459,7 @@ export function CashierForm({
                   {paymentMethods.length > 0 ? (
                     paymentMethods.map((method) => (
                       <SelectItem key={method.id} value={method.id}>
-                        {method.name}
+                        {method.nama_pembayaran}
                       </SelectItem>
                     ))
                   ) : (
@@ -413,15 +521,33 @@ export function CashierForm({
             </TabsList>
 
             <TabsContent value="all">
-              {renderProductGrid(filteredProducts)}
+              {isLoading ? (
+                <div className="text-center py-8 text-pink-500">
+                  Memuat produk...
+                </div>
+              ) : (
+                renderProductGrid(filteredProducts)
+              )}
             </TabsContent>
 
             <TabsContent value="makanan">
-              {renderProductGrid(makananProducts)}
+              {isLoading ? (
+                <div className="text-center py-8 text-pink-500">
+                  Memuat produk...
+                </div>
+              ) : (
+                renderProductGrid(makananProducts)
+              )}
             </TabsContent>
 
             <TabsContent value="minuman">
-              {renderProductGrid(minumanProducts)}
+              {isLoading ? (
+                <div className="text-center py-8 text-pink-500">
+                  Memuat produk...
+                </div>
+              ) : (
+                renderProductGrid(minumanProducts)
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -511,10 +637,12 @@ export function CashierForm({
         <CardFooter>
           <Button
             onClick={handleSubmit}
-            disabled={!selectedPaymentMethod || cartItems.length === 0}
+            disabled={
+              !selectedPaymentMethod || cartItems.length === 0 || isLoading
+            }
             className="w-full bg-pink-500 hover:bg-pink-600 text-white"
           >
-            Simpan Transaksi
+            {isLoading ? 'Menyimpan...' : 'Simpan Transaksi'}
           </Button>
         </CardFooter>
       </Card>
@@ -600,9 +728,10 @@ export function CashierForm({
               </Button>
               <Button
                 onClick={handleAddProduct}
+                disabled={isLoading}
                 className="bg-pink-500 hover:bg-pink-600 text-white"
               >
-                Tambah Produk
+                {isLoading ? 'Menambahkan...' : 'Tambah Produk'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -650,9 +779,10 @@ export function CashierForm({
               </Button>
               <Button
                 onClick={handleAddPaymentMethod}
+                disabled={isLoading}
                 className="bg-pink-500 hover:bg-pink-600 text-white"
               >
-                Tambah Metode Pembayaran
+                {isLoading ? 'Menambahkan...' : 'Tambah Metode Pembayaran'}
               </Button>
             </DialogFooter>
           </DialogContent>

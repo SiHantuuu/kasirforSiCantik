@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +18,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import type { Transaction } from '@/components/cashier-dashboard';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -32,24 +31,111 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable'; // Pastikan import ini ada
+import 'jspdf-autotable';
 import autoTable from 'jspdf-autotable';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { fetchTransactions, updateTransaction } from '@/services/api';
 
-interface TransactionHistoryProps {
-  transactions: Transaction[];
-  onUpdateTransaction: (transaction: Transaction) => void;
+// Interface for the API response
+interface ProductItem {
+  produk: {
+    _id: string;
+    nama_produk: string;
+    harga: number;
+  };
+  jumlah: number;
+  _id: string;
 }
 
-export function TransactionHistory({
-  transactions,
-  onUpdateTransaction,
-}: TransactionHistoryProps) {
+interface PaymentMethod {
+  _id: string;
+  nama_pembayaran: string;
+}
+
+interface ApiTransaction {
+  _id: string;
+  tanggal: string;
+  pembeli: string;
+  tipe: 'langsung' | 'preorder';
+  status: 'lunas' | 'pending';
+  total: number;
+  jenis_pembayaran: PaymentMethod;
+  produk: ProductItem[];
+  __v: number;
+}
+
+// Interface for the frontend transaction format
+interface Transaction {
+  id: string;
+  date: string;
+  customerName: string;
+  deliveryType: 'pickup' | 'po';
+  isPaid: boolean;
+  total: number;
+  paymentMethod: string;
+  items: {
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+  }[];
+}
+
+export function TransactionHistory() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
+
+  useEffect(() => {
+    const loadTransactions = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchTransactions();
+
+        // Mapping untuk mengubah _id menjadi id dan sesuaikan format
+        const formattedData = data.map(
+          ({
+            _id,
+            tanggal,
+            pembeli,
+            tipe,
+            status,
+            total,
+            jenis_pembayaran,
+            produk,
+          }: ApiTransaction) => ({
+            id: _id,
+            date: tanggal,
+            customerName: pembeli || 'Umum',
+            deliveryType: tipe === 'langsung' ? 'pickup' : 'po',
+            isPaid: status === 'lunas',
+            total,
+            paymentMethod: jenis_pembayaran.nama_pembayaran,
+            items: produk.map(({ produk, jumlah }) => ({
+              id: produk._id,
+              name: produk.nama_produk,
+              price: produk.harga,
+              quantity: jumlah,
+            })),
+          })
+        );
+
+        setTransactions(formattedData);
+      } catch (err) {
+        setError('Failed to load transactions');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTransactions();
+  }, []);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -72,22 +158,64 @@ export function TransactionHistory({
         item.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
 
-    // Filter by type (all or date)
+    // Filter by type
     if (filterType === 'all') {
       return matchesSearch;
+    } else if (filterType === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      const transactionDate = new Date(transaction.date)
+        .toISOString()
+        .split('T')[0];
+      return matchesSearch && transactionDate === today;
+    } else if (filterType === 'week') {
+      const today = new Date();
+      const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const transactionDate = new Date(transaction.date);
+      return (
+        matchesSearch && transactionDate >= lastWeek && transactionDate <= today
+      );
+    } else if (filterType === 'month') {
+      const today = new Date();
+      const thisMonth = today.getMonth();
+      const thisYear = today.getFullYear();
+      const transactionDate = new Date(transaction.date);
+      return (
+        matchesSearch &&
+        transactionDate.getMonth() === thisMonth &&
+        transactionDate.getFullYear() === thisYear
+      );
     }
-
-    // Additional filters could be added here
     return matchesSearch;
   });
 
-  const handlePaymentStatusChange = (
+  const handlePaymentStatusChange = async (
     transaction: Transaction,
     isPaid: boolean
   ) => {
-    const updatedTransaction = { ...transaction, isPaid };
-    onUpdateTransaction(updatedTransaction);
-    setSelectedTransaction(updatedTransaction);
+    try {
+      // First, update the transaction in the API
+      await updateTransaction(transaction.id, {
+        status: isPaid ? 'lunas' : 'pending',
+      });
+
+      // If successful, update the local state
+      const updatedTransactions = transactions.map((t) => {
+        if (t.id === transaction.id) {
+          return { ...t, isPaid };
+        }
+        return t;
+      });
+
+      setTransactions(updatedTransactions);
+
+      // Update selected transaction if it's the one being modified
+      if (selectedTransaction && selectedTransaction.id === transaction.id) {
+        setSelectedTransaction({ ...selectedTransaction, isPaid });
+      }
+    } catch (err) {
+      setError('Failed to update transaction status');
+      console.error(err);
+    }
   };
 
   const exportToPDF = () => {
@@ -224,6 +352,15 @@ export function TransactionHistory({
     });
     saveAs(blob, 'laporan-transaksi.xlsx');
   };
+
+  if (loading) {
+    return <div className="text-center p-8">Loading transactions...</div>;
+  }
+
+  if (error) {
+    return <div className="text-center p-8 text-red-500">{error}</div>;
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -335,11 +472,7 @@ export function TransactionHistory({
                           {formatDate(transaction.date)}
                         </td>
                         <td className="p-2 text-pink-700">
-                          {transaction.deliveryType === 'pickup' ? (
-                            <span className="text-pink-500">Umum</span>
-                          ) : (
-                            transaction.customerName
-                          )}
+                          {transaction.customerName}
                         </td>
                         <td className="p-2">
                           <Badge
@@ -414,35 +547,31 @@ export function TransactionHistory({
                                         Tanggal:{' '}
                                         {formatDate(selectedTransaction.date)}
                                       </p>
+                                      <p className="text-pink-700">
+                                        Pembeli:{' '}
+                                        {selectedTransaction.customerName}
+                                      </p>
                                       {selectedTransaction.deliveryType ===
                                         'po' && (
-                                        <>
-                                          <p className="text-pink-700">
-                                            Pembeli:{' '}
-                                            {selectedTransaction.customerName}
-                                          </p>
-                                          <div className="flex items-center space-x-2 mt-2">
-                                            <Checkbox
-                                              id="transaction-paid"
-                                              checked={
-                                                selectedTransaction.isPaid
-                                              }
-                                              onCheckedChange={(checked) =>
-                                                handlePaymentStatusChange(
-                                                  selectedTransaction,
-                                                  checked === true
-                                                )
-                                              }
-                                              className="border-pink-400 text-pink-500 focus:ring-pink-500"
-                                            />
-                                            <Label
-                                              htmlFor="transaction-paid"
-                                              className="text-pink-700"
-                                            >
-                                              Sudah Dibayar
-                                            </Label>
-                                          </div>
-                                        </>
+                                        <div className="flex items-center space-x-2 mt-2">
+                                          <Checkbox
+                                            id="transaction-paid"
+                                            checked={selectedTransaction.isPaid}
+                                            onCheckedChange={(checked) =>
+                                              handlePaymentStatusChange(
+                                                selectedTransaction,
+                                                checked === true
+                                              )
+                                            }
+                                            className="border-pink-400 text-pink-500 focus:ring-pink-500"
+                                          />
+                                          <Label
+                                            htmlFor="transaction-paid"
+                                            className="text-pink-700"
+                                          >
+                                            Sudah Dibayar
+                                          </Label>
+                                        </div>
                                       )}
                                       <p className="text-pink-700">
                                         Metode Pembayaran:{' '}
@@ -452,8 +581,8 @@ export function TransactionHistory({
                                         Tipe Pengambilan:{' '}
                                         {selectedTransaction.deliveryType ===
                                         'po'
-                                          ? ' Pre-Order (PO)'
-                                          : ' Ambil Langsung'}
+                                          ? 'Pre-Order (PO)'
+                                          : 'Ambil Langsung'}
                                       </p>
                                     </div>
                                     <div className="text-right">
